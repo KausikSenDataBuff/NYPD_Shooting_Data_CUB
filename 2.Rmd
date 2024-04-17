@@ -1,0 +1,154 @@
+---
+title: "DTSA5301 Assignment Week 3"
+output:
+  pdf_document: default
+  html_document: default
+date: "2024-03-31"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# NYPD Shooting incident Data Report
+###### The dataset consists of information around shooting incidents that occured in NYC from 2006 through the end of the previous calendar year. The data is manually extracted every quarter and reviewed by the Office of Management Analysis and Planning. The attached footnotes and data dictionary gives detailed information about the assumptions, method of collection and structure of the data. 
+#### This document does an exploratory analysis on the data and tests a few hypotheses. The goal of this is to demonstrate how reproducable research has to be performed.
+
+## Step 0 : Load necessary packages
+Packages lubridate for manipulation on dates and Tidyverse for data cleaning, transformation etc.
+```{r step0, message=FALSE, warning=FALSE}
+library(lubridate)
+library(tidyverse)
+```
+## Step 1 : Import and load the data
+The data is available through catalog of open data *https://catalog.data.gov/dataset*. Link to the data has been copied and is directly being loaded from the internet. Showing the first few rows of the data below.
+```{r step1}
+data_link = 'https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD'
+nypd_shootings = read.csv(data_link)
+head(nypd_shootings)
+```
+## Step 2 : Check and understand the data
+Here we make some basic checks on the data. We note the number of rows and columns in the data so that we can tally it later after cleaning. We also summarize the data and identify null values.
+```{r step2}
+# Check number of rows and columns
+dim(nypd_shootings)
+# View Summary
+summary(nypd_shootings)
+# Check for missing values
+colSums(is.na(nypd_shootings))
+```
+Only 10 data from Lat long missing and 2 data from jurisdiction is missing. For our analysis, we will not need these columns. Hence we can move to the next stage.
+
+## Step 3 : Tidying and transforming
+On closer observation, it is found that though there are no null values, there are some blank strings and other anomalies. For example, the PERP_RACE column shows the non-compliant strings. We substitute incorrect values with the string 'UNKNOWN'.
+```{r step3}
+unique(nypd_shootings$PERP_RACE)
+#Clean the data through a pipeline
+nypd_shootings=nypd_shootings%>%mutate(PERP_AGE_GROUP=case_when(
+  PERP_AGE_GROUP %in% c('940','','(null)','224','1020')~'UNKNOWN',
+  TRUE ~ PERP_AGE_GROUP
+  ))%>%mutate(PERP_SEX=case_when(
+  PERP_SEX %in% c('','(null)')~'UNKNOWN',
+  TRUE ~ PERP_SEX
+  ))%>%mutate(PERP_RACE=case_when(
+  PERP_RACE %in% c('','(null)')~'UNKNOWN',
+  TRUE ~ PERP_RACE
+  ))%>%mutate(VIC_AGE_GROUP=case_when(
+  VIC_AGE_GROUP %in% c('1022')~'UNKNOWN',
+  TRUE ~ VIC_AGE_GROUP
+  ))
+# Finally check if the dimensions match
+dim(nypd_shootings)
+```
+## Step 4 : Converting data types
+We look up the data dictionary from the provider of the data and make appropriate changes to the data types
+```{r step4}
+# Ensure proper data types
+nypd_shootings$OCCUR_DATE <- as.Date(nypd_shootings$OCCUR_DATE,format = "%m/%d/%Y")
+nypd_shootings$OCCUR_TIME <- hms(nypd_shootings$OCCUR_TIME)
+
+# Convert categorical columns to factors
+nypd_shootings$BORO <- as.factor(nypd_shootings$BORO)
+# ... and similarly for other categorical columns
+nypd_shootings$STATISTICAL_MURDER_FLAG <- as.factor(nypd_shootings$STATISTICAL_MURDER_FLAG)
+nypd_shootings$PERP_AGE_GROUP <- as.factor(nypd_shootings$PERP_AGE_GROUP)
+nypd_shootings$PERP_SEX <- as.factor(nypd_shootings$PERP_SEX)
+nypd_shootings$PERP_RACE <- as.factor(nypd_shootings$PERP_RACE)
+nypd_shootings$VIC_AGE_GROUP <- as.factor(nypd_shootings$VIC_AGE_GROUP)
+nypd_shootings$VIC_SEX <- as.factor(nypd_shootings$VIC_SEX)
+nypd_shootings$VIC_RACE <- as.factor(nypd_shootings$VIC_RACE)
+```
+Finally, the data is clean for some visualizations and exploratory analyses.
+
+## Step 5 : Visualizing the data
+We observe number of shooting incidents by year and see how the timeseries is behaving. We also see the behaviour by boroughs.
+```{r step5}
+# Time series with color by year
+ggplot(nypd_shootings, aes(x = OCCUR_DATE, color = factor(year(OCCUR_DATE)))) +
+  geom_histogram(binwidth = 30) +
+  scale_color_viridis_d() + # Discrete color scale
+  labs(x = "Date", y = "Number of Shootings",
+       title = "Shootings over Time", color = "Year") +
+  theme_minimal()
+
+# Shootings by borough
+ggplot(nypd_shootings, aes(x = BORO, fill = BORO)) +
+  geom_bar() +
+  scale_fill_brewer(palette = "Set2") + # Colorful qualitative palette
+  labs(x = "Borough", y = "Number of Shootings",
+       title = "Shootings across Boroughs") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+## Step 6 : Analyzing the data
+We see the relation between the number of murders and non-murders by boroughs. We also observe the victims age group and analyze that younger people are disproportionately more affected.
+```{r step6}
+# Murder vs Non-murder shootings
+ggplot(nypd_shootings, aes(x = BORO, y = ..count.., fill = STATISTICAL_MURDER_FLAG)) +
+  geom_bar(position = "dodge") +  # For side-by-side comparison
+  scale_fill_manual(values = c("skyblue", "red")) +
+  labs(x = "Borough", y = "Number of Shootings", fill = "Murder Flag",
+       title = "Shooting Incidents by Borough (Murder vs. Non-Murder)") +
+  theme_minimal()
+
+# Victim age data
+ggplot(nypd_shootings, aes(x = VIC_AGE_GROUP, fill = ..count..)) +
+  geom_bar() +
+  scale_fill_gradient(low = "yellow", high = "darkorange") +
+  labs(x = "Victim Age Group", y = "Shootings", fill = "Count",
+       title = "Shooting Distribution Across Victim Age")
+```
+
+## Step 7 : Modelling the data
+Finally, we model the relation between Borough and perpetrators age group and find that different boroughs have different age group association. This relationship may be vital to law enforcement who can look for differential strategies across the boroughs instead of the usual 'one size fits all' method.
+```{r image_insert, echo=FALSE, fig.cap='Mosaic Plot',out.width='100%'}
+knitr::include_graphics('mos1.png')
+```
+We test the hypothesis that the perpetrators age group is independent of the boro in which the crime has occured. The low p-value of this test shows that the hypothesis is false. The image in the end section visually corroborates this finding.
+```{r step7,warning=FALSE}
+#linm = lm(STATISTICAL_MURDER_FLAG~BORO,data = nypd_shootings)
+#summary(linm)
+# The image file has been generated thus
+#library(vcd)
+#png('mos1.png',height=13,width=13,units='in',res=100)
+#mosaic(~ BORO + PERP_AGE_GROUP, data = nypd_shootings, shade = TRUE,abbreviate=1)
+#dev.off()
+chisq.test(table(nypd_shootings$BORO,nypd_shootings$PERP_AGE_GROUP))
+
+```
+
+## Step 8 : Identifying possible sources of bias
+The possible sources of bias are listed below:
+1. Missing data : Though we have not filtered out missing data from the set, there are a number of datapoints with label 'UNKNOWN'. These may affect the findings.
+2. Data collection inaccuracies : The foot notes describe some sources of bias. For example, if the shooting incident happened in a train, the next stop is taken as the location. 
+  + Other sources may include outliers or unreasonable values
+3. Sampling bias : It is possible that the dataset doesnot reflect the true proportions of shooting incidents across different locations, time or demographic groups.
+4. Implicit bias in reporting : There may be certain types of incidents which may be more likely to be reported. Language of reporting may also introduce bias.
+5. Personal bias: Given the sensitive nature of the data, I may have held some pre-conceived notions against certain neighbourhood, race or age group. I hope that the same would be mitigated through standardized reporting and oversight from peers.
+
+## Conclusion:
+#### Our analysis of the NYPD shooting incident dataset revealed several key insights. we observed seasonal trends in shooting and disparate distribution of perpetretors age group across boroughs. Additionally, certain precincts appear to have a disproportionate number of shootings, even after accounting for other variables. However, data accuracy and bias has to be closely investigated for a final conclusion on the topic.
+
+```{r sess_info}
+sessionInfo()
+```
